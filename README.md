@@ -1,5 +1,7 @@
 # ZCRMailbox
 
+[![Build Status](https://travis-ci.org/zradke/ZCRMailbox.svg?branch=master)](https://travis-ci.org/zradke/ZCRMailbox)
+
 KVO subscription inspired by [FBKVOController](https://github.com/facebook/KVOController) and [MAKVONotificationCenter](https://github.com/mikeash/MAKVONotificationCenter), with compatibility back to iOS5.
 
 ===
@@ -97,7 +99,7 @@ If you need to unsubscribe but still want to work with the mailbox, you can use 
 
 ## Testing
 
-ZCRMailbox has unit tests using XCTest. To run the tests yourself, clone the repo. You can then either run the tests from within Xcode or from the command line.
+ZCRMailbox has unit tests using XCTest, and is continuously integrated using [Travis CI](https://travis-ci.org/zradke/ZCRMailbox). To run the tests yourself, first clone the repo. You can then either run the tests from within Xcode or from the command line.
 
 #### Inside Xcode
 
