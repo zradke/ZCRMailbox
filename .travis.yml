@@ -1,0 +1,5 @@
+language: objective-c
+xcode_project: Project/ZCRMailbox.xcodeproj
+xcode_scheme: ZCRMailbox
+xcode_sdk: iphonesimulator7.0
+
