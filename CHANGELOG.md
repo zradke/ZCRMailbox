@@ -2,7 +2,7 @@
 
 ## 0.1.1
 
-*March 24, 2014*
+*March 25, 2014*
 
 Bug fixes, organizational fixes, debugging enhancements.
 
