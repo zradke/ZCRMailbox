@@ -9,6 +9,58 @@
 #import "ZCRMailbox.h"
 
 /**
+ *  Conveneince method for retrieving a human readable string from an NSKeyValueObservingOptions bitmask.
+ *
+ *  @param options The NSKeyValueObservingOptions bitmask.
+ *
+ *  @return A human readable representation of the options passed.
+ */
+static NSString *ZCRStringForKVOOptions(NSKeyValueObservingOptions options) {
+    NSMutableArray *optionStrings = [NSMutableArray array];
+    
+    if (options & NSKeyValueObservingOptionInitial) {
+        [optionStrings addObject:@"NSKeyValueObservingOptionInitial"];
+    }
+    
+    if (options & NSKeyValueObservingOptionNew) {
+        [optionStrings addObject:@"NSKeyValueObservingOptionNew"];
+    }
+    
+    if (options & NSKeyValueObservingOptionOld) {
+        [optionStrings addObject:@"NSKeyValueObservingOptionOld"];
+    }
+    
+    if (options & NSKeyValueObservingOptionPrior) {
+        [optionStrings addObject:@"NSKeyValueObservingOptionPrior"];
+    }
+    
+    return (optionStrings.count > 0) ? [optionStrings componentsJoinedByString:@"|"] : @"None";
+}
+
+/**
+ *  Convenience method for retrieving a human readable string from an NSKeyValueChange enum.
+ *
+ *  @param kind The NSKeyValueChange enum.
+ *
+ *  @return A human readable representation of the change kind passed.
+ */
+static NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
+    switch (kind) {
+        case NSKeyValueChangeSetting:
+            return @"NSKeyValueChangeSetting";
+        case NSKeyValueChangeInsertion:
+            return @"NSKeyValueChangeInsertion";
+        case NSKeyValueChangeRemoval:
+            return @"NSKeyValueChangeRemoval";
+        case NSKeyValueChangeReplacement:
+            return @"NSKeyValueChangeReplacement";
+        default:
+            return nil;
+    }
+}
+
+
+/**
  *  Private object representing a single subscription to a notifier made by a ZCRMailbox.
  */
 @interface _ZCRSubscription : NSObject
@@ -84,6 +136,41 @@
     [self unsubscribeFromAll];
 }
 
+- (NSString *)description {
+    NSMutableString *description = [NSMutableString stringWithFormat:@"<%@:%p> ", NSStringFromClass([self class]), self];
+    
+    id subscriber = _subscriber;
+    [description appendFormat:@"subscriber:<%@:%p> ", NSStringFromClass([subscriber class]), subscriber];
+    
+    [self.lock lock];
+    
+    [description appendString:@"subscriptionsForNotifiers:{"];
+    
+    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id __unused notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop) {
+        [description appendFormat:@"\n\t<%@:%p>:", NSStringFromClass([notifier class]), notifier];
+        
+        if (subscriptions.count > 0) {
+            [description appendString:@"("];
+            for (_ZCRSubscription *subscription in subscriptions) {
+                [description appendFormat:@"\n\t\t%@", subscription];
+            }
+            [description appendString:@"\n\t)"];
+        } else {
+            [description appendString:@"()"];
+        }
+    }];
+    
+    if (self.subscriptionsForNotifiers.count > 0) {
+        [description appendString:@"\n}"];
+    } else {
+        [description appendString:@"}"];
+    }
+    
+    [self.lock unlock];
+    
+    return [description copy];
+}
+
 - (BOOL)subscribeTo:(id)notifier keyPath:(NSString *)keyPath
             options:(NSKeyValueObservingOptions)options
               block:(void (^)(ZCRMessage *))block {
@@ -96,18 +183,6 @@
     return [self _addSubscription:subscription forNotifier:notifier];
 }
 
-- (void)unsubscribeFromAll {
-    [self.lock lock];
-    
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifier, NSMutableSet *subscriptions, BOOL *stop) {
-        [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions forNotifier:notifier];
-    }];
-    
-    [self.subscriptionsForNotifiers removeAllObjects];
-    
-    [self.lock unlock];
-}
-
 - (BOOL)_addSubscription:(_ZCRSubscription *)subscription forNotifier:(id)notifier {
     if (!subscription || !notifier) { return NO; }
     
@@ -115,7 +190,7 @@
     
     __block NSMutableSet *subscriptions = nil;
     
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
+    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id __unused notifierKey, id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
         // We are using pointer equality to check for a match rather than isEqual: to ensure we have the *exact* object which was registered.
         if (existingNotifier == notifier) {
             subscriptions = existingSubscriptions;
@@ -148,45 +223,17 @@
     return (matchingSubscriptions.count == 0);
 }
 
-- (BOOL)unsubscribeFrom:(id)notifier {
-    if (!notifier) { return NO; }
-    
-    NSMutableDictionary *subscriptionsForNotifiers = self.subscriptionsForNotifiers;
-    
-    [self.lock lock];
-    
-    __block id foundKey = nil;
-    
-    // Because we need to get the actual dictionary key object, we can't use the enumerateNotifiersAndSubscriptionsUsingBlock: method
-    [subscriptionsForNotifiers enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-        id (^notifierBlock)() = key;
-        id existingNotifier = notifierBlock();
-        
-        if (existingNotifier == notifier) {
-            foundKey = key;
-            [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:obj forNotifier:notifier];
-            *stop = YES;
-        }
-    }];
-    
-    if (foundKey) {
-        [subscriptionsForNotifiers removeObjectForKey:foundKey];
-    }
-    
-    [self.lock unlock];
-    
-    return (foundKey != nil);
-}
-
 - (BOOL)unsubscribeFrom:(id)notifier keyPath:(NSString *)keyPath {
     if (!notifier || !keyPath) { return NO; }
     
     [self.lock lock];
     
+    __block id existingKey = nil;
     __block NSMutableSet *subscriptions = nil;
     
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
+    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
         if (existingNotifier == notifier) {
+            existingKey = notifierKey;
             subscriptions = existingSubscriptions;
             *stop = YES;
         }
@@ -206,12 +253,55 @@
         [subscriptions minusSet:matchingSubscriptions];
     }
     
+    // Since we strongly retain notifiers, we need to make sure and clean up when we're unsubscribed from them
+    if (subscriptions.count == 0) {
+        [self.subscriptionsForNotifiers removeObjectForKey:existingKey];
+    }
+    
     [self.lock unlock];
     
     return (matchingSubscriptions.count > 0);
 }
 
-- (void)_enumerateNotifiersAndSubscriptionsUsingBlock:(void (^)(id notifier, NSMutableSet *subscriptions, BOOL *stop))block {
+- (BOOL)unsubscribeFrom:(id)notifier {
+    if (!notifier) { return NO; }
+    
+    NSMutableDictionary *subscriptionsForNotifiers = self.subscriptionsForNotifiers;
+    
+    [self.lock lock];
+    
+    __block id foundKey = nil;
+    
+    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id existingNotifier, NSMutableSet *subscriptions, BOOL *stop) {
+        if (existingNotifier == notifier) {
+            foundKey = notifierKey;
+            [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions forNotifier:notifier];
+            *stop = YES;
+        }
+    }];
+    
+    if (foundKey) {
+        [subscriptionsForNotifiers removeObjectForKey:foundKey];
+    }
+    
+    [self.lock unlock];
+    
+    return (foundKey != nil);
+}
+
+- (void)unsubscribeFromAll {
+    [self.lock lock];
+    
+    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop) {
+        [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions forNotifier:notifier];
+    }];
+    
+    [self.subscriptionsForNotifiers removeAllObjects];
+    
+    [self.lock unlock];
+}
+
+- (void)_enumerateNotifiersAndSubscriptionsUsingBlock:(void (^)(id notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop))block {
     if (!block) { return; }
     
     [self.subscriptionsForNotifiers enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
@@ -219,7 +309,7 @@
         id (^notifierBlock)() = key;
         id notifier = notifierBlock();
         
-        block(notifier, obj, stop);
+        block(key, notifier, obj, stop);
     }];
 }
 
@@ -250,6 +340,28 @@
     return self;
 }
 
+- (NSString *)description {
+    NSMutableString *description = [NSMutableString stringWithFormat:@"<%@:%p>", NSStringFromClass([self class]), self];
+    
+    [self.lock lock];
+    
+    [description appendString:@" subscriptions:("];
+    
+    for (_ZCRSubscription *subscription in self.subscriptions) {
+        [description appendFormat:@"\n\t%@", subscription];
+    }
+    
+    if (self.subscriptions.count > 0) {
+        [description appendString:@"\n)"];
+    } else {
+        [description appendString:@")"];
+    }
+    
+    [self.lock unlock];
+    
+    return [description copy];
+}
+
 - (void)addSubscription:(_ZCRSubscription *)subscription forNotifier:(id)notifier {
     if (!subscription || !notifier) { return; }
     
@@ -265,6 +377,11 @@
     
     [subscriptions addObject:subscription];
     
+    [self.lock unlock];
+    
+    // Ala FBKVOController, we strip out the NSKeyValueObservingOptionInitial and perform the callback manually
+    NSKeyValueObservingOptions cleanedOptions = subscription.options & ~NSKeyValueObservingOptionInitial;
+    
     // For now these conditionals only apply to NSArrays, but in the future these more efficient observation methods for colletions might
     // be added, so we try and future proof here.
     if ([notifier respondsToSelector:@selector(addObserver:toObjectsAtIndexes:forKeyPath:options:context:)] &&
@@ -273,13 +390,23 @@
         NSIndexSet *indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, [notifier count])];
         [notifier addObserver:self toObjectsAtIndexes:indexes
                    forKeyPath:subscription.keyPath
-                      options:subscription.options
+                      options:cleanedOptions
                       context:(__bridge void *)subscription];
     } else {
-        [notifier addObserver:self forKeyPath:subscription.keyPath options:subscription.options context:(__bridge void *)subscription];
+        [notifier addObserver:self forKeyPath:subscription.keyPath options:cleanedOptions context:(__bridge void *)subscription];
     }
     
-    [self.lock unlock];
+    // Ala FBKVOController, we manually trigger the NSKeyValueObservingOptionInitial if present
+    if (subscription.options & NSKeyValueObservingOptionInitial) {
+        NSMutableDictionary *changeDictionary = [NSMutableDictionary dictionaryWithDictionary:@{NSKeyValueChangeKindKey: @(NSKeyValueChangeSetting)}];
+        
+        if (subscription.options & NSKeyValueObservingOptionNew) {
+            id value = [notifier valueForKeyPath:subscription.keyPath];
+            changeDictionary[NSKeyValueChangeNewKey] = value ?: [NSNull null];
+        }
+        
+        [self observeValueForKeyPath:subscription.keyPath ofObject:notifier change:[changeDictionary copy] context:(__bridge void *)subscription];
+    }
 }
 
 - (void)removeSubscriptions:(NSSet *)subscriptions forNotifier:(id)notifier {
@@ -378,6 +505,22 @@
     return [self initWithMailbox:nil notifier:nil keyPath:nil options:0 block:nil];
 }
 
+- (NSString *)description {
+    NSMutableString *description = [NSMutableString stringWithFormat:@"<%@:%p> ", NSStringFromClass([self class]), self];
+    
+    id mailbox = _mailbox;
+    [description appendFormat:@"mailbox:<%@:%p> ", NSStringFromClass([mailbox class]), mailbox];
+    
+    id notifier = _notifier;
+    [description appendFormat:@"notifier:<%@:%p> ", NSStringFromClass([notifier class]), notifier];
+    
+    [description appendFormat:@"keyPath:%@ ", _keyPath];
+    [description appendFormat:@"options:%@ ", ZCRStringForKVOOptions(_options)];
+    [description appendFormat:@"block:%p", _block];
+    
+    return [description copy];
+}
+
 - (NSUInteger)hash {
     // For hashing we use the mailbox, notifier, keypath, and options, but exclude the block.
     // Although the mailbox and notifier are weak, we can safely use them here because the ZCRMailbox will strongly retain both this and
@@ -424,7 +567,6 @@
     _keyPath = [keyPath copy];
     _kind = [change[NSKeyValueChangeKindKey] unsignedIntegerValue];
     
-    
     // These properties depend on the NSKeyValueObservingOptions passed when registering for KVO. As such, sometimes they return NSNulls
     // to report nil values. We convert these to nil.
     _oldValue = change[NSKeyValueChangeOldKey];
@@ -446,6 +588,32 @@
 
 - (instancetype)init {
     return [self initWithNotifier:nil keyPath:nil change:nil];
+}
+
+- (NSString *)description {
+    NSMutableString *description = [NSMutableString stringWithFormat:@"<%@:%p> ", NSStringFromClass([self class]), self];
+    
+    id notifier = _notifier;
+    [description appendFormat:@"notifier:<%@:%p> ", NSStringFromClass([notifier class]), notifier];
+    
+    [description appendFormat:@"keyPath:%@ ", _keyPath];
+    [description appendFormat:@"kind:%@", ZCRStringForKVOKind(_kind)];
+    
+    if (_newValue) {
+        [description appendFormat:@" newValue:%@", _newValue];
+    }
+    
+    if (_oldValue) {
+        [description appendFormat:@" oldValue:%@", _oldValue];
+    }
+    
+    if (_indexes) {
+        [description appendFormat:@" indexes:%@", _indexes];
+    }
+    
+    [description appendFormat:@" isPriorToChange:%@", (_isPriorToChange) ? @"YES" : @"NO"];
+    
+    return description;
 }
 
 @end

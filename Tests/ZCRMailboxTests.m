@@ -107,6 +107,39 @@
     XCTAssertEqualObjects(lastMessage.newValue, @"test02", @"There should be a new value");
 }
 
+- (void)testPriorSubscription {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionPrior | NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    __block NSUInteger timesInvoked = 0;
+    __block ZCRMessage *priorMessage;
+    __block ZCRMessage *afterMessage;
+    
+    notifier.name = @"test01";
+    
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:options block:^(ZCRMessage *message) {
+        timesInvoked++;
+        
+        if (!priorMessage) { priorMessage = message; }
+        else { afterMessage = message; }
+    }];
+    
+    XCTAssertTrue(result, @"The subscription should be added");
+    
+    notifier.name = @"test02";
+    
+    XCTAssertTrue(timesInvoked == 2, @"The block should be invoked twice");
+    
+    XCTAssertTrue(priorMessage.isPriorToChange, @"The prior message should be flagged as such.");
+    XCTAssertEqualObjects(priorMessage.notifier, notifier, @"The notifiers should match on the prior message.");
+    XCTAssertEqualObjects(priorMessage.oldValue, @"test01", @"The old value should be set on the prior message.");
+    XCTAssertNil(priorMessage.newValue, @"The new value should be nil on the prior message.");
+    
+    XCTAssertFalse(afterMessage.isPriorToChange, @"The after message should be flagged as such.");
+    XCTAssertEqualObjects(afterMessage.notifier, notifier, @"The notifiers should match on the after message.");
+    XCTAssertEqualObjects(afterMessage.oldValue, @"test01", @"The old value should be set on the after message.");
+    XCTAssertEqualObjects(afterMessage.newValue, @"test02", @"The new value should be set on the after message.");
+}
+
 - (void)testMultipleKeyPathSubscriptions {
     NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
     
@@ -374,6 +407,66 @@
     XCTAssertNil(notifier02Message, @"The second message should be unset.");
 }
 
+- (void)testSubscribeUnsubscribeAllKeyPathsFreesNotifier {
+    __weak ZCRModel *model = nil;
+    
+    @autoreleasepool {
+        ZCRModel *strongModel = [[ZCRModel alloc] init];
+        model = strongModel;
+        
+        [mailbox subscribeTo:model keyPath:@"name" options:0 block:^(ZCRMessage *message) {
+        }];
+    }
+    
+    XCTAssertNotNil(model, @"The model should be retained as long as the subscription lasts");
+    
+    @autoreleasepool {
+        [mailbox unsubscribeFrom:model keyPath:@"name"];
+    }
+    
+    XCTAssertNil(model, @"Once all subscriptions are removed, the model should be released");
+}
+
+- (void)testSubscribeUnsubscribeNotifierFreesNotifier {
+    __weak ZCRModel *model = nil;
+    
+    @autoreleasepool {
+        ZCRModel *strongModel = [[ZCRModel alloc] init];
+        model = strongModel;
+        
+        [mailbox subscribeTo:model keyPath:@"name" options:0 block:^(ZCRMessage *message) {
+        }];
+    }
+    
+    XCTAssertNotNil(model, @"The model should be retained as long as the subscription lasts");
+    
+    @autoreleasepool {
+        [mailbox unsubscribeFrom:model];
+    }
+    
+    XCTAssertNil(model, @"Once all subscriptions are removed, the model should be released");
+}
+
+- (void)testSubscribeUnsubscribeAllFreesNotifier {
+    __weak ZCRModel *model = nil;
+    
+    @autoreleasepool {
+        ZCRModel *strongModel = [[ZCRModel alloc] init];
+        model = strongModel;
+        
+        [mailbox subscribeTo:model keyPath:@"name" options:0 block:^(ZCRMessage *message) {
+        }];
+    }
+    
+    XCTAssertNotNil(model, @"The model should be retained as long as the subscription lasts");
+    
+    @autoreleasepool {
+        [mailbox unsubscribeFromAll];
+    }
+    
+    XCTAssertNil(model, @"Once all subscriptions are removed, the model should be released");
+}
+
 - (void)testUnsubscribeWithoutKeyPath {
     __block NSUInteger timesInvoked = 0;
     
@@ -397,7 +490,7 @@
     XCTAssertFalse(result, @"The subscription should not be removed");
 }
 
-- (void)testUnsubscribeFromUnknownNotifier {
+- (void)testUnsubscribeUnknownNotifier {
     __block NSUInteger timesInvoked = 0;
     
     BOOL result01 = [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew block:^(ZCRMessage *message) {

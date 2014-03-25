@@ -1,12 +1,12 @@
 Pod::Spec.new do |s|
   s.name         = "ZCRMailbox"
-  s.version      = "0.1.0"
+  s.version      = "0.1.1"
   s.summary      = "KVO Subscription inspired by FBKVOController and MAKVONotificationCenter"
   s.homepage     = "https://github.com/zradke/ZCRMailbox"
 
   s.license      = 'MIT'
 
-  s.author             = { "Zach Radke" => "email@address.com" }
+  s.author             = { "Zach Radke" => "zach.radke@gmail.com" }
 
   s.ios.deployment_target = '5.0'
   s.osx.deployment_target = '10.7'
