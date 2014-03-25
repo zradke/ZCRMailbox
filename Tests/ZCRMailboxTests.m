@@ -19,11 +19,45 @@
 @implementation ZCRModel
 @end
 
+static void *ZCRSubscriberKVOContext = &ZCRSubscriberKVOContext;
+
 @interface ZCRSubscriber : NSObject
 @property (strong, nonatomic) ZCRMailbox *mailbox;
+
+@property (assign, readonly) NSUInteger messagesReceived;
+@property (strong, readonly) ZCRMessage *lastMessage;
+
+@property (assign, readonly) NSUInteger changesReceived;
+@property (strong, readonly) NSDictionary *lastChange;
+
+- (void)notifierDidChange;
+- (void)notifierPostedMessage:(ZCRMessage *)message;
+- (void)notifier:(id)notifier postedMessage:(ZCRMessage *)message;
 @end
 
 @implementation ZCRSubscriber
+
+- (void)notifierDidChange {
+    _messagesReceived++;
+}
+
+- (void)notifierPostedMessage:(ZCRMessage *)message {
+    _messagesReceived++;
+    _lastMessage = message;
+}
+
+- (void)notifier:(id)notifier postedMessage:(ZCRMessage *)message {
+    _messagesReceived++;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    _changesReceived++;
+    
+    if (context == ZCRSubscriberKVOContext) {
+        _lastChange = change;
+    }
+}
+
 @end
 
 
@@ -52,7 +86,10 @@
     [super tearDown];
 }
 
-- (void)testBasicSubscription {
+
+#pragma mark - Subscribe tests
+
+- (void)testBlockSubscription {
     NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
     
     __block NSUInteger timesInvoked = 0;
@@ -75,6 +112,71 @@
     notifier.name = @"test02";
     
     XCTAssertTrue(timesInvoked == 2, @"The block should be invoked twice.");
+    XCTAssertEqualObjects(lastMessage.notifier, notifier, @"The notifiers should match.");
+    XCTAssertEqualObjects(lastMessage.oldValue, @"test01", @"There should be an old value");
+    XCTAssertEqualObjects(lastMessage.newValue, @"test02", @"There should be a new value");
+}
+
+- (void)testSelectorWithMessageSubscription {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:options selector:@selector(notifierPostedMessage:)];
+    
+    XCTAssertTrue(result, @"The subscription should be added");
+    
+    notifier.name = @"test01";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 1, @"The selector should be invoked once.");
+    XCTAssertEqualObjects(subscriber.lastMessage.notifier, notifier, @"The notifiers should match.");
+    XCTAssertNil(subscriber.lastMessage.oldValue, @"There shouldn't be an old value");
+    XCTAssertEqualObjects(subscriber.lastMessage.newValue, @"test01", @"There should be a new value");
+    
+    notifier.name = @"test02";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 2, @"The selector should be invoked twice.");
+    XCTAssertEqualObjects(subscriber.lastMessage.notifier, notifier, @"The notifiers should match.");
+    XCTAssertEqualObjects(subscriber.lastMessage.oldValue, @"test01", @"There should be an old value");
+    XCTAssertEqualObjects(subscriber.lastMessage.newValue, @"test02", @"There should be a new value");
+}
+
+- (void)testSelectorWithoutMessageSubscription {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:options selector:@selector(notifierDidChange)];
+    
+    XCTAssertTrue(result, @"The subscription should be added");
+    
+    notifier.name = @"test01";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 1, @"The selector should be invoked once.");
+    
+    notifier.name = @"test02";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 2, @"The selector should be invoked twice.");
+}
+
+- (void)testContextSubscription {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:options context:ZCRSubscriberKVOContext];
+    
+    XCTAssertTrue(result, @"The subscription should be added");
+    
+    notifier.name = @"test01";
+    
+    XCTAssertTrue(subscriber.changesReceived == 1, @"The KVO method should be invoked once.");
+    
+    ZCRMessage *lastMessage = [[ZCRMessage alloc] initWithNotifier:notifier keyPath:@"name" change:subscriber.lastChange];
+    
+    XCTAssertEqualObjects(lastMessage.notifier, notifier, @"The notifiers should match.");
+    XCTAssertNil(lastMessage.oldValue, @"There shouldn't be an old value");
+    XCTAssertEqualObjects(lastMessage.newValue, @"test01", @"There should be a new value");
+    
+    notifier.name = @"test02";
+    
+    lastMessage = [[ZCRMessage alloc] initWithNotifier:notifier keyPath:@"name" change:subscriber.lastChange];
+    
+    XCTAssertTrue(subscriber.changesReceived == 2, @"The KVO method should be invoked twice.");
     XCTAssertEqualObjects(lastMessage.notifier, notifier, @"The notifiers should match.");
     XCTAssertEqualObjects(lastMessage.oldValue, @"test01", @"There should be an old value");
     XCTAssertEqualObjects(lastMessage.newValue, @"test02", @"There should be a new value");
@@ -258,6 +360,30 @@
     XCTAssertFalse(result, @"The subscription should not be added");
 }
 
+- (void)testSubscribeWithoutSelector {
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew selector:NULL];
+    XCTAssertFalse(result, @"The subscription should not be added");
+}
+
+- (void)testSubscribeWithInvalidSelector {
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew selector:@selector(notifier:postedMessage:)];
+    XCTAssertFalse(result, @"The subscription should not be added");
+    
+    notifier.name = @"test01";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 0, @"No messages should be sent to invalid selectors.");
+}
+
+- (void)testSubscribeWithoutContext {
+    BOOL result = [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew context:NULL];
+    XCTAssertTrue(result, @"The subscription should be added.");
+    
+    notifier.name = @"test01";
+    
+    XCTAssertTrue(subscriber.changesReceived == 1, @"The KVO method should be invoked once.");
+    XCTAssertNil(subscriber.lastChange, @"The context should be NULL.");
+}
+
 - (void)testSubscribeWithRegisteredKeyPath {
     NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
     
@@ -290,7 +416,10 @@
     XCTAssertNil(lastMessage02, @"No second message should be sent.");
 }
 
-- (void)testUnsubscribeKeyPath {
+
+#pragma mark - Unsubscribe tests
+
+- (void)testUnsubscribeKeyPathBlock {
     NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
     
     __block NSUInteger timesInvoked = 0;
@@ -314,6 +443,46 @@
     
     XCTAssertTrue(timesInvoked == 1, @"The block should still be invoked once.");
     XCTAssertNil(lastMessage, @"The last message should not be set.");
+}
+
+- (void)testUnsubscribeKeyPathSelector {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    [mailbox subscribeTo:notifier keyPath:@"name" options:options selector:@selector(notifierPostedMessage:)];
+    
+    notifier.name = @"test01";
+    
+    ZCRMessage *message01 = subscriber.lastMessage;
+    
+    XCTAssertTrue(subscriber.messagesReceived == 1, @"The selector should be invoked once.");
+    XCTAssertNotNil(message01, @"The last message should be set.");
+    
+    XCTAssertTrue([mailbox unsubscribeFrom:notifier keyPath:@"name"], @"The subscription should be removed.");
+    
+    notifier.name = @"test02";
+    
+    XCTAssertTrue(subscriber.messagesReceived == 1, @"The selector should still be invoked once.");
+    XCTAssertEqualObjects(message01, subscriber.lastMessage, @"The last message should not change.");
+}
+
+- (void)testUnsubscribeKeyPathContext {
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew;
+    
+    [mailbox subscribeTo:notifier keyPath:@"name" options:options context:ZCRSubscriberKVOContext];
+    
+    notifier.name = @"test01";
+    
+    NSDictionary *change01 = subscriber.lastChange;
+    
+    XCTAssertTrue(subscriber.changesReceived == 1, @"The KVO method should be invoked once.");
+    XCTAssertNotNil(change01, @"The last change should be set.");
+    
+    XCTAssertTrue([mailbox unsubscribeFrom:notifier keyPath:@"name"], @"The subscription should be removed.");
+    
+    notifier.name = @"test02";
+    
+    XCTAssertTrue(subscriber.changesReceived == 1, @"The KVO method should still be invoked once.");
+    XCTAssertEqualObjects(change01, subscriber.lastChange, @"The last change should not change.");
 }
 
 - (void)testUnsubscribeNotifier {

@@ -83,6 +83,36 @@ NSKeyValueObservingOptions options = NSKeyValueObservingOptionInitial | NSKeyVal
 
 You can add subscriptions to as many notifiers and key-paths as you'd like, all from one mailbox!
 
+If you prefer selectors to blocks, give one of these a try:
+
+```
+[self.mailbox subscribeTo:newsletter keyPath:@"updatedDate" options:options selector:@selector(newsletterDidUpdateDate)];
+[self.mailbox subscribeTo:newsletter keyPath:@"posts" options:options selector:@selector(newsletterDidUpdatePost:))];
+...
+- (void)newsletterDidUpdateDate { // Do stuff }
+- (void)newsletterDidUpdatePost:(ZCRMessage *)message { // Do stuff }
+```
+
+Finally, if you are migrating traditional KVO code and want a quick plug-in solution until you can get selectors and blocks working, there's this:
+
+```
+static void *ABCSubscriberKVOContext = &ABCSubscriberKVOContext;
+...
+[self.mailbox subscribeTo:newsletter keyPath:@"updatedDate" options:options context:ABCSubscriberKVOContext];
+...
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    if (context == ABCSubscriberKVOContext) {
+        // Optionally convert this to a message
+        ZCRMessage *message = [[ZCRMessage alloc] initWithNotifier:object keyPath:keyPath change:change];
+        // Do something
+    } else {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
+}
+```
+
+Not very pretty, but it'll do in a pinch. The context is optional, but traditionally a good idea to make sure the notification is the one you want to receive.
+
 ### Cleanup
 
 When you're done with a mailbox, you can simply let it deallocate. This will automatically cancel all subscriptions.

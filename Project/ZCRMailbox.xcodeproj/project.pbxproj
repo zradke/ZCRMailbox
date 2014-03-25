@@ -22,6 +22,7 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		7460481118E22E62003AB1B8 /* ZCRMessageTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 7460481018E22E62003AB1B8 /* ZCRMessageTests.m */; };
 		74B2F69018DD23F8006CBD84 /* libZCRMailbox.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 74C625E818DB94FC0028C235 /* libZCRMailbox.a */; };
 		74C625EC18DB94FC0028C235 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74C625EB18DB94FC0028C235 /* Foundation.framework */; };
 		74C625F118DB94FC0028C235 /* ZCRMailbox.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = 74C625F018DB94FC0028C235 /* ZCRMailbox.h */; };
@@ -64,6 +65,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		7460481018E22E62003AB1B8 /* ZCRMessageTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ZCRMessageTests.m; sourceTree = "<group>"; };
 		74C625E818DB94FC0028C235 /* libZCRMailbox.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libZCRMailbox.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		74C625EB18DB94FC0028C235 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		74C625F018DB94FC0028C235 /* ZCRMailbox.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZCRMailbox.h; sourceTree = "<group>"; };
@@ -139,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				74C6260718DB94FC0028C235 /* ZCRMailboxTests.m */,
+				7460481018E22E62003AB1B8 /* ZCRMessageTests.m */,
 				74C6260218DB94FC0028C235 /* Supporting Files */,
 			);
 			name = Tests;
@@ -291,6 +294,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				74C6260818DB94FC0028C235 /* ZCRMailboxTests.m in Sources */,
+				7460481118E22E62003AB1B8 /* ZCRMessageTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

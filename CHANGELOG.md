@@ -1,5 +1,16 @@
 # Changes, logged
 
+## 0.1.2
+
+*March 25, 2014*
+
+Additional subscription methods and tests.
+
+* Adds `-subscribeTo:keyPath:options:selector` and `-subscribeTo:keyPath:options:context:` methods to `ZCRMailbox`.
+* Adds `__attribute__` decorators to methods.
+* Exposes `ZCRStringForKVOOptions(NSKeyValueObservingOptions)` and `ZCRStringForKVOKind(NSKeyValueChange)`.
+* Adds additional tests for `ZCRMailbox` and `ZCRMessage`.
+
 ## 0.1.1
 
 *March 25, 2014*

@@ -11,6 +11,24 @@
 @class ZCRMessage;
 
 /**
+ *  Conveneince method for retrieving a human readable string from an NSKeyValueObservingOptions bitmask.
+ *
+ *  @param options The NSKeyValueObservingOptions bitmask.
+ *
+ *  @return A human readable representation of the options passed.
+ */
+FOUNDATION_EXPORT NSString *ZCRStringForKVOOptions(NSKeyValueObservingOptions options);
+
+/**
+ *  Convenience method for retrieving a human readable string from an NSKeyValueChange enum.
+ *
+ *  @param kind The NSKeyValueChange enum.
+ *
+ *  @return A human readable representation of the change kind passed.
+ */
+FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribute__((const));
+
+/**
  *  The ZCRMailbox acts as a mediator in KVO notifications, taking a subscriber object and maintaining subscriptions to various notifier
  *  objects and their key paths.
  *
@@ -69,7 +87,7 @@
  *  referencing itself in the block without weakening itself, or have a mechanism for manually de-referencing the mailbox.
  *
  *  @param notifier The object that will generate the KVO updates. This must not be nil.
- *  @param keyPath  The key-path on the notiifer to observe. This must not be nil.
+ *  @param keyPath  The key-path on the notifier to observe. This must not be nil.
  *  @param options  A bitmask of KVO options for the subscription.
  *  @param block    A block which is invoked with each KVO update until the subscription is removed. This must not be nil.
  *
@@ -77,7 +95,53 @@
  */
 - (BOOL)subscribeTo:(id)notifier keyPath:(NSString *)keyPath
             options:(NSKeyValueObservingOptions)options
-              block:(void (^)(ZCRMessage *message))block;
+              block:(void (^)(ZCRMessage *message))block NS_REQUIRES_SUPER;
+
+/**
+ *  Adds a new subscription to the mailbox for the given notifier and key-path. The options passed will reflect the populated values of the
+ *  ZCRMessages that may be sent to the passed selector.
+ *
+ *  The passed selector must either accept no additional arguments (aside from the hidden self and _cmd arguments), or a single ZCRMessage
+ *  argument, for example:
+ *
+ *      - (void)notifierDidChange;
+ *      - (void)subscriberDidReceiveMessage:(ZCRMessage *)message;
+ *
+ *  Both example method definitions would be considered acceptable. No restrictions are placed on method return values, but nothing returned
+ *  will be used by this class.
+ *
+ *  @param notifier The object that will generate the KVO updates. This must not be nil.
+ *  @param keyPath  The key-path on the notifier to observe. This must not be nil.
+ *  @param options  A bitmask of KVO options for the subscription.
+ *  @param selector A selector existing on the subscriber that wil be invoked with each KVO update until the subscription is removed. This
+    must not be nil, and must either accept no additional arguments or receive a single ZCRMessage argument.
+ *
+ *  @return YES if the subscription was added successfully, NO if it could not be added.
+ */
+- (BOOL)subscribeTo:(id)notifier keyPath:(NSString *)keyPath
+            options:(NSKeyValueObservingOptions)options
+           selector:(SEL)selector NS_REQUIRES_SUPER;
+
+/**
+ *  Adds a new subscription to the mailbox for the given notifier and key-path. The options passed will reflect the values of the change
+ *  dictionary sent to the subscriber's observeValueForKeyPath:ofObject:change:context: method.
+ *
+ *  @note This method exists mostly to ease the transition away from traditional KVO setups. The other subscribeTo:... methods should be
+ *  preferred when possible.
+ *
+ *  @see subscribeTo:keyPath:options:block:
+ *  @see subscribeTo:keyPath:options:selector:
+ *
+ *  @param notifier    The object that will generate the KVO updates. This must not be nil.
+ *  @param keyPath     The key-path on the notifier to observe. This must not be nil.
+ *  @param options     A bitmask of KVO options for the subscription.
+ *  @param userContext Arbitrary data passed to the subscriber on KVO updates. This may be NULL.
+ *
+ *  @return YES if the subscription was added successfully, NO if it could not be added.
+ */
+- (BOOL)subscribeTo:(id)notifier keyPath:(NSString *)keyPath
+            options:(NSKeyValueObservingOptions)options
+            context:(void *)userContext NS_REQUIRES_SUPER;
 
 /**
  *  Removes a single subscription made to the given notifier for the given key-path in this mailbox.
@@ -87,7 +151,7 @@
  *
  *  @return YES if the subscription was removed, NO if it could not be.
  */
-- (BOOL)unsubscribeFrom:(id)notifier keyPath:(NSString *)keyPath;
+- (BOOL)unsubscribeFrom:(id)notifier keyPath:(NSString *)keyPath NS_REQUIRES_SUPER;
 
 /**
  *  Removes all subscriptions made to the given notifier for this mailbox.
@@ -96,12 +160,12 @@
  *
  *  @return YES if the subscriptions could be removed, NO if they could not be removed.
  */
-- (BOOL)unsubscribeFrom:(id)notifier;
+- (BOOL)unsubscribeFrom:(id)notifier NS_REQUIRES_SUPER;
 
 /**
  *  Removes all subscriptions for this mailbox. This method is naturally invoked when the mailbox deallocates.
  */
-- (void)unsubscribeFromAll;
+- (void)unsubscribeFromAll NS_REQUIRES_SUPER;
 
 @end
 
@@ -120,7 +184,7 @@
  */
 @interface ZCRMessage : NSObject {
 @protected
-    
+    // These variables are exposed for subclasses.
     __weak id _notifier;
     NSString *_keyPath;
     NSKeyValueChange _kind;
