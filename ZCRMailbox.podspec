@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "ZCRMailbox"
-  s.version      = "0.1.2"
+  s.version      = "0.1.3"
   s.summary      = "KVO Subscription inspired by FBKVOController and MAKVONotificationCenter"
   s.homepage     = "https://github.com/zradke/ZCRMailbox"
 

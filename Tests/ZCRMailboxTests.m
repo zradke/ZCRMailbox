@@ -707,6 +707,9 @@ static void *ZCRSubscriberKVOContext = &ZCRSubscriberKVOContext;
     XCTAssertNil(lastMessage, @"The last message should be unset.");
 }
 
+
+#pragma mark - Thread safety
+
 - (void)testMultipleThreads {
     BOOL shouldRun = YES;
     
@@ -735,6 +738,123 @@ static void *ZCRSubscriberKVOContext = &ZCRSubscriberKVOContext;
     }
     
     shouldRun = NO;
+}
+
+- (void)testNotifyBlockFromBackground {
+    NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+    queue.maxConcurrentOperationCount = 1;
+    [queue setSuspended:YES];
+    
+    mailbox.messageQueue = queue;
+    
+    __block ZCRMessage *lastMessage = nil;
+    [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew block:^(ZCRMessage *message) {
+        lastMessage = message;
+    }];
+    
+    __block BOOL didChangeNotifier = NO;
+    
+    dispatch_queue_t backgroundQueue = dispatch_queue_create(NULL, DISPATCH_QUEUE_SERIAL);
+    dispatch_async(backgroundQueue, ^{
+        notifier.name = @"test01";
+        didChangeNotifier = YES;
+    });
+    
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !didChangeNotifier) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertTrue(didChangeNotifier, @"The notifier timed out on changing.");
+    
+    XCTAssertNil(lastMessage, @"The last message should not yet be set");
+    XCTAssertTrue(queue.operationCount == 1, @"There should be one queued operation");
+    
+    [queue setSuspended:NO];
+    
+    timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !lastMessage) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertNotNil(lastMessage, @"The notification block was never executed");
+    XCTAssertEqualObjects(lastMessage.newValue, @"test01", @"The new value should be set.");
+}
+
+- (void)testNotifySelectorFromBackground {
+    NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+    queue.maxConcurrentOperationCount = 1;
+    [queue setSuspended:YES];
+    
+    mailbox.messageQueue = queue;
+    
+    [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew selector:@selector(notifierPostedMessage:)];
+    
+    __block BOOL didChangeNotifier = NO;
+    
+    dispatch_queue_t backgroundQueue = dispatch_queue_create(NULL, DISPATCH_QUEUE_SERIAL);
+    dispatch_async(backgroundQueue, ^{
+        notifier.name = @"test01";
+        didChangeNotifier = YES;
+    });
+    
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !didChangeNotifier) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertTrue(didChangeNotifier, @"The notifier timed out on changing.");
+    
+    XCTAssertNil(subscriber.lastMessage, @"The last message should not yet be set");
+    XCTAssertTrue(queue.operationCount == 1, @"There should be one queued operation");
+    
+    [queue setSuspended:NO];
+    
+    timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !subscriber.lastMessage) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertNotNil(subscriber.lastMessage, @"The selector was never executed");
+    XCTAssertEqualObjects(subscriber.lastMessage.newValue, @"test01", @"The new value should be set.");
+}
+
+- (void)testNotifyContextFromBackground {
+    NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+    queue.maxConcurrentOperationCount = 1;
+    [queue setSuspended:YES];
+    
+    mailbox.messageQueue = queue;
+    
+    [mailbox subscribeTo:notifier keyPath:@"name" options:NSKeyValueObservingOptionNew context:ZCRSubscriberKVOContext];
+    
+    __block BOOL didChangeNotifier = NO;
+    
+    dispatch_queue_t backgroundQueue = dispatch_queue_create(NULL, DISPATCH_QUEUE_SERIAL);
+    dispatch_async(backgroundQueue, ^{
+        notifier.name = @"test01";
+        didChangeNotifier = YES;
+    });
+    
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !didChangeNotifier) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertTrue(didChangeNotifier, @"The notifier timed out on changing.");
+    
+    XCTAssertNil(subscriber.lastChange, @"The last change should not yet be set");
+    XCTAssertTrue(queue.operationCount == 1, @"There should be one queued operation");
+    
+    [queue setSuspended:NO];
+    
+    timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !subscriber.lastMessage) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    
+    XCTAssertNotNil(subscriber.lastChange, @"The KVO method was never executed");
+    XCTAssertEqualObjects(subscriber.lastChange[NSKeyValueChangeNewKey], @"test01", @"The new value should be set.");
 }
 
 @end

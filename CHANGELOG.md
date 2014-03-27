@@ -1,5 +1,14 @@
 # Changes, logged
 
+## 0.1.3
+
+*March 26, 2014*
+
+Gives control over message queues and fixes documentation issues for [appledoc](https://github.com/tomaz/appledoc).
+
+* Adds `messageQueue` property to `ZCRMailbox` with additional tests for the new functionality.
+* Fixes documentation issues with `ZCRMailbox` and `ZCRMessage`.
+
 ## 0.1.2
 
 *March 25, 2014*

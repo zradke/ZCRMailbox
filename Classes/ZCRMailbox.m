@@ -46,7 +46,7 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 }
 
 
-/**
+/*
  *  Private object representing a single subscription to a notifier made by a ZCRMailbox.
  */
 @interface _ZCRSubscription : NSObject
@@ -68,7 +68,7 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 @end
 
 
-/**
+/*
  *  Private coordinator which receives all subscription and unsubscription requests. This object also is the true receiver for all KVO
  *  notifications subscribed to through ZCRMailbox instances.
  *
@@ -93,7 +93,7 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 @end
 
 
-/**
+/*
  *  Additional properties for the ZCRMailbox. Thread-safety is guaranteed by a simple NSRecursiveLock, since a single mailbox is
  *  unlikely to encounter a massive number of subscription and unsubscription requests.
  */
@@ -515,8 +515,16 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     id notifier = subscription.notifier;
     ZCRMessage *message = [[ZCRMessage alloc] initWithNotifier:notifier keyPath:subscription.keyPath change:change];
     
+    NSOperationQueue *messageQueue = subscription.mailbox.messageQueue;
+    
     if (subscription.block) {
-        subscription.block(message);
+        if (messageQueue) {
+            [messageQueue addOperationWithBlock:^{
+                subscription.block(message);
+            }];
+        } else {
+            subscription.block(message);
+        }
         
         return YES;
     }
@@ -538,7 +546,14 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
         }
         
         if (invocation) {
-            [invocation invoke];
+            if (messageQueue) {
+                // The invocation operation will automatically tell the invocation to retain its arguments
+                NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithInvocation:invocation];
+                [messageQueue addOperation:operation];
+            } else {
+                [invocation invoke];
+            }
+            
             return YES;
         } else {
             return NO;
@@ -546,7 +561,13 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     }
     
     // As a fallback, use the traditional KVO path
-    [subscriber observeValueForKeyPath:subscription.keyPath ofObject:notifier change:change context:subscription.userContext];
+    if (messageQueue) {
+        [messageQueue addOperationWithBlock:^{
+            [subscriber observeValueForKeyPath:subscription.keyPath ofObject:notifier change:change context:subscription.userContext];
+        }];
+    } else {
+        [subscriber observeValueForKeyPath:subscription.keyPath ofObject:notifier change:change context:subscription.userContext];
+    }
     
     return YES;
 }

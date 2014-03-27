@@ -42,7 +42,7 @@ pod "ZCRMailbox"
 
 to your `Podfile`, run `pod install` and you're good to go!
 
-If you're working on a serious project, it's recommended to specify at least a major and minor version in your `Podfile`, ala: `pod "ZCRMailbox", "~> 0.1.0"`
+If you're working on a serious project, it's recommended to specify at least a major and minor version in your `Podfile`, ala: `pod "ZCRMailbox", "~> 0.1"`.
 
 ### Build a framework (iOS only)
 
@@ -68,6 +68,12 @@ Because the subscriber is only weakly referenced, it can be a good idea for the 
 
 ```
 self.mailbox = [[ZCRMailbox alloc] initWithSubscriber:self];
+```
+
+If you need to deliver notifier messages to the subscriber on a specific queue, you can do that too:
+
+```
+self.mailbox.messageQueue = [NSOperationQueue mainQueue];
 ```
 
 ### Working with a mailbox

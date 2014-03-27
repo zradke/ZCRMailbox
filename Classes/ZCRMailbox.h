@@ -50,9 +50,13 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
  *  is very important to avoid retain cycles when using the block-based subscription methods. Referencing the subscriber in the block, which
  *  retains the mailbox, will result in the subscriber not being able to deallocate until the mailbox is manually nilled out.
  *
- *  ZCRMailboxes are guaranteed to execute and deliver ZCRMessages in a thread-safe manner, however no guarantee is made as to which thread
- *  these messages will be delivered on. Therefore, if UI changes are made in the subscription action, they should be dispatched onto the
- *  main thread or queue.
+ *  For this same reason, it is inadvisable for a mailbox to subscribe to its subscriber's KVO notifications, as this will also strongly
+ *  retain the subscriber, unless there is a guaranteed way to clear the association.
+ *
+ *  ZCRMailboxes are guaranteed to execute and deliver [ZCRMessages](ZCRMessage) in a thread-safe manner. Further control is posssible
+ *  through setting the messageQueue property, which will ensure all messages are delivered on the provided NSOperationQueue. This is
+ *  especially relevant if the block or method invoked upon KVO notifications is required to perform UI changes, in which case the
+ *  messageQueue should be set to `[NSOperationQueue mainQueue]`.
  *
  *  ## Subclassing Notes
  *
@@ -62,10 +66,7 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
  */
 @interface ZCRMailbox : NSObject
 
-/**
- *  Returns the subscriber which registered this mailbox, or nil if the subscriber has been deallocated.
- */
-@property (weak, nonatomic, readonly) id subscriber;
+/** @name Creating and configuring mailboxes */
 
 /**
  *  Designated initializer which generates a new mailbox for the given subscriber
@@ -77,8 +78,25 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
 - (instancetype)initWithSubscriber:(id)subscriber;
 
 /**
+ *  Returns the subscriber which registered this mailbox, or nil if the subscriber has been deallocated.
+ */
+@property (weak, nonatomic, readonly) id subscriber;
+
+/**
+ *  Allows control over which queue KVO notifications are sent. If set, all subscriptions will deliver their messages through the passed
+ *  queue. Otherwise, no guarantees are made as to what queue notifications are delivered on.
+ *
+ *  @note This property affects all subscriptions of the mailbox. Even if a subscription was added with a a different messageQueue in place,
+ *  once the property changes all future messages from that subscription will be delivered on the new messageQueue until it is changed.
+ */
+@property (strong) NSOperationQueue *messageQueue;
+
+
+/** @name Subscribing to notifiers */
+
+/**
  *  Adds a new subscription to the mailbox for the given notifier and key-path. The options passed will reflect the populated values of the
- *  ZCRMessages that are passed in the action block.
+ *  [ZCRMessages](ZCRMessage) that are passed in the action block.
  *
  *  @note A mailbox can only have one subscription for a given notifier and key-path. This means that this method cannot be invoked
  *  successfully with the same notifier and key-path more than once without unregistering the notifier and key-path first.
@@ -99,13 +117,10 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
 
 /**
  *  Adds a new subscription to the mailbox for the given notifier and key-path. The options passed will reflect the populated values of the
- *  ZCRMessages that may be sent to the passed selector.
+ *  [ZCRMessages](ZCRMessage) that may be sent to the passed selector.
  *
  *  The passed selector must either accept no additional arguments (aside from the hidden self and _cmd arguments), or a single ZCRMessage
- *  argument, for example:
- *
- *      - (void)notifierDidChange;
- *      - (void)subscriberDidReceiveMessage:(ZCRMessage *)message;
+ *  argument, for example:  `- (void)notifierDidChange;` and `- (void)subscriberDidReceiveMessage:(ZCRMessage *)message;`
  *
  *  Both example method definitions would be considered acceptable. No restrictions are placed on method return values, but nothing returned
  *  will be used by this class.
@@ -114,7 +129,7 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
  *  @param keyPath  The key-path on the notifier to observe. This must not be nil.
  *  @param options  A bitmask of KVO options for the subscription.
  *  @param selector A selector existing on the subscriber that wil be invoked with each KVO update until the subscription is removed. This
-    must not be nil, and must either accept no additional arguments or receive a single ZCRMessage argument.
+ *  must not be nil, and must either accept no additional arguments or receive a single ZCRMessage argument.
  *
  *  @return YES if the subscription was added successfully, NO if it could not be added.
  */
@@ -124,9 +139,9 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
 
 /**
  *  Adds a new subscription to the mailbox for the given notifier and key-path. The options passed will reflect the values of the change
- *  dictionary sent to the subscriber's observeValueForKeyPath:ofObject:change:context: method.
+ *  dictionary sent to the subscriber's `observeValueForKeyPath:ofObject:change:context:` method.
  *
- *  @note This method exists mostly to ease the transition away from traditional KVO setups. The other subscribeTo:... methods should be
+ *  @note This method exists mostly to ease the transition away from traditional KVO setups. The other `subscribeTo:...` methods should be
  *  preferred when possible.
  *
  *  @see subscribeTo:keyPath:options:block:
@@ -142,6 +157,9 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
 - (BOOL)subscribeTo:(id)notifier keyPath:(NSString *)keyPath
             options:(NSKeyValueObservingOptions)options
             context:(void *)userContext NS_REQUIRES_SUPER;
+
+
+/** @name Unsubscribing from notifiers */
 
 /**
  *  Removes a single subscription made to the given notifier for the given key-path in this mailbox.
@@ -219,7 +237,7 @@ FOUNDATION_EXPORT NSString *ZCRStringForKVOKind(NSKeyValueChange kind) __attribu
  *  Returns the new value of the key path, if present and subscribed for. Note that this has the NS_RETURNS_NOT_RETAINED because it uses
  *  the reserved word "new", but does not actually increment the retain count as expected.
  */
-@property (strong, nonatomic, readonly) id newValue NS_RETURNS_NOT_RETAINED;
+@property (strong, nonatomic, readonly) id newValue __attribute__((ns_returns_not_retained));
 
 /**
  *  Returns the indexes that were updated, if present and subscribed for.
