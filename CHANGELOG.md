@@ -2,12 +2,13 @@
 
 ## 0.1.3
 
-*March 26, 2014*
+*March 27, 2014*
 
 Gives control over message queues and fixes documentation issues for [appledoc](https://github.com/tomaz/appledoc).
 
 * Adds `messageQueue` property to `ZCRMailbox` with additional tests for the new functionality.
 * Fixes documentation issues with `ZCRMailbox` and `ZCRMessage`.
+* Does some behind-the-scenes refactoring of `ZCRMailbox`
 
 ## 0.1.2
 
@@ -42,3 +43,4 @@ Initial release.
 * Adds `ZCRMailbox` and `ZCRMessage` classes.
 * Adds unit tests for `ZCRMailbox`.
 * Integrates unit tests into [Travis CI](https://travis-ci.org/zradke/ZCRMailbox)
+
