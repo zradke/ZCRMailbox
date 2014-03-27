@@ -86,9 +86,9 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 
 + (instancetype)sharedPostOffice __attribute__((const));
 
-- (BOOL)addSubscription:(_ZCRSubscription *)subscription forNotifier:(id)notifier;
+- (BOOL)addSubscription:(_ZCRSubscription *)subscription;
 
-- (BOOL)removeSubscriptions:(NSSet *)subscriptions forNotifier:(id)notifier;
+- (BOOL)removeSubscriptions:(NSSet *)subscriptions;
 
 @end
 
@@ -99,7 +99,9 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
  */
 @interface ZCRMailbox ()
 @property (strong, nonatomic, readonly) NSRecursiveLock *lock;
-@property (strong, nonatomic, readonly) NSMutableDictionary *subscriptionsForNotifiers;
+
+@property (strong, nonatomic) NSMutableArray *notifiers;
+@property (strong, nonatomic) NSMutableSet *subscriptions;
 @end
 
 @implementation ZCRMailbox
@@ -112,7 +114,8 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     _lock = [[NSRecursiveLock alloc] init];
     _lock.name = [NSString stringWithFormat:@"com.zachradke.mailbox.%p.lock", self];
     
-    _subscriptionsForNotifiers = [NSMutableDictionary dictionary];
+    _notifiers = [NSMutableArray array];
+    _subscriptions = [NSMutableSet set];
     
     return self;
 }
@@ -134,29 +137,21 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     
     [self.lock lock];
     
-    [description appendString:@"subscriptionsForNotifiers:{"];
-    
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id __unused notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop) {
-        [description appendFormat:@"\n\t<%@:%p>:", NSStringFromClass([notifier class]), notifier];
-        
-        if (subscriptions.count > 0) {
-            [description appendString:@"("];
-            for (_ZCRSubscription *subscription in subscriptions) {
-                [description appendFormat:@"\n\t\t%@", subscription];
-            }
-            [description appendString:@"\n\t)"];
-        } else {
-            [description appendString:@"()"];
-        }
-    }];
-    
-    if (self.subscriptionsForNotifiers.count > 0) {
-        [description appendString:@"\n}"];
-    } else {
-        [description appendString:@"}"];
-    }
+    NSSet *subscriptions = [self.subscriptions copy];
     
     [self.lock unlock];
+    
+    [description appendString:@"subscriptions:("];
+    
+    for (_ZCRSubscription *subscription in subscriptions) {
+        [description appendFormat:@"\n\t%@", subscription];
+    }
+    
+    if (subscriptions.count > 0) {
+        [description appendString:@"\n)"];
+    } else {
+        [description appendString:@")"];
+    }
     
     return [description copy];
 }
@@ -209,36 +204,32 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     
     [self.lock lock];
     
-    __block NSMutableSet *subscriptions = nil;
+    BOOL isNewNotifier = [self.notifiers indexOfObjectIdenticalTo:notifier] == NSNotFound;
     
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id __unused notifierKey, id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
-        // We are using pointer equality to check for a match rather than isEqual: to ensure we have the *exact* object which was registered.
-        if (existingNotifier == notifier) {
-            subscriptions = existingSubscriptions;
-            *stop = YES;
-        }
-    }];
-    
-    if (!subscriptions) {
-        subscriptions = [NSMutableSet set];
+    // New notifiers need to be added to the array
+    if (isNewNotifier) {
+        success = [[_ZCRPostOffice sharedPostOffice] addSubscription:subscription];
         
-        // As a tricksy way of getting around the NSCopying requirement for dictionary keys, we wrap the notifier in a block to use as a key.
-        id key = ^id { return notifier; };
-        
-        self.subscriptionsForNotifiers[key] = subscriptions;
-    }
-    
-    // We ensure that a single notifier-keyPath pair is registered per mailbox.
-    NSPredicate *keyPathPredicate = [NSPredicate predicateWithFormat:@"%K == %@", NSStringFromSelector(@selector(keyPath)), subscription.keyPath];
-    
-    NSSet *matchingSubscriptions = [subscriptions filteredSetUsingPredicate:keyPathPredicate];
-    
-    if (matchingSubscriptions.count == 0) {
-        success = [[_ZCRPostOffice sharedPostOffice] addSubscription:subscription forNotifier:notifier];
-        
-        // Only add this subscription if it was added to the post office.
         if (success) {
-            [subscriptions addObject:subscription];
+            [self.notifiers addObject:notifier];
+            [self.subscriptions addObject:subscription];
+        }
+    } else {
+        // We need a custom predicate that checks the key-path and notifier pointers.
+        NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(_ZCRSubscription *existingSubscription, NSDictionary *__unused bindings) {
+            return existingSubscription.notifier == notifier && [existingSubscription.keyPath isEqualToString:subscription.keyPath];
+        }];
+        
+        BOOL shouldAddSubscription = [[self.subscriptions filteredSetUsingPredicate:predicate] count] == 0;
+        
+        if (shouldAddSubscription) {
+            success = [[_ZCRPostOffice sharedPostOffice] addSubscription:subscription];
+            
+            if (success) {
+                [self.subscriptions addObject:subscription];
+            }
+        } else {
+            success = NO;
         }
     }
     
@@ -252,40 +243,37 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     
     [self.lock lock];
     
-    __block id existingKey = nil;
-    __block NSMutableSet *subscriptions = nil;
-    
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id existingNotifier, NSMutableSet *existingSubscriptions, BOOL *stop) {
-        if (existingNotifier == notifier) {
-            existingKey = notifierKey;
-            subscriptions = existingSubscriptions;
-            *stop = YES;
-        }
-    }];
-    
-    if (!subscriptions) {
-        [self.lock unlock];
-        return NO;
-    }
-    
     BOOL success = NO;
     
-    NSPredicate *keyPathPredicate = [NSPredicate predicateWithFormat:@"%K == %@", NSStringFromSelector(@selector(keyPath)), keyPath];
+    NSUInteger notifierIndex = [self.notifiers indexOfObjectIdenticalTo:notifier];
     
-    NSSet *matchingSubscriptions = [subscriptions filteredSetUsingPredicate:keyPathPredicate];
-    
-    if (matchingSubscriptions.count > 0) {
-        success = [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:matchingSubscriptions forNotifier:notifier];
+    if (notifierIndex != NSNotFound) {
+        // We need a custom predicate that checks the key-path and notifier pointers
+        NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(_ZCRSubscription *existingSubscription, NSDictionary *__unused bindings) {
+            return existingSubscription.notifier == notifier && [existingSubscription.keyPath isEqualToString:keyPath];
+        }];
         
-        // Only remove the subscription if it was successfully removed from the post office.
-        if (success) {
-            [subscriptions minusSet:matchingSubscriptions];
+        NSSet *subscriptions = [self.subscriptions filteredSetUsingPredicate:predicate];
+        
+        if (subscriptions.count > 0) {
+            success = [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions];
+            
+            if (success) {
+                [self.subscriptions minusSet:subscriptions];
+                
+                // On success we need to check if the notifier should be removed from the array so it can be released
+                predicate = [NSPredicate predicateWithBlock:^BOOL(_ZCRSubscription *existingSubscription, NSDictionary *__unused bindings) {
+                    return existingSubscription.notifier == notifier;
+                }];
+                
+                subscriptions = [self.subscriptions filteredSetUsingPredicate:predicate];
+                
+                // If no more subscriptions exist for the notifier, we can safely remove it from the array
+                if (subscriptions.count == 0) {
+                    [self.notifiers removeObjectAtIndex:notifierIndex];
+                }
+            }
         }
-    }
-    
-    // Since we strongly retain notifiers, we need to make sure and clean up when we're unsubscribed from them
-    if (subscriptions.count == 0) {
-        [self.subscriptionsForNotifiers removeObjectForKey:existingKey];
     }
     
     [self.lock unlock];
@@ -296,28 +284,26 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 - (BOOL)unsubscribeFrom:(id)notifier {
     if (!notifier) { return NO; }
     
-    NSMutableDictionary *subscriptionsForNotifiers = self.subscriptionsForNotifiers;
-    
     [self.lock lock];
     
-    __block BOOL success = NO;
-    __block id foundKey = nil;
+    BOOL success = NO;
     
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id existingNotifier, NSMutableSet *subscriptions, BOOL *stop) {
-        if (existingNotifier == notifier) {
-            success = [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions forNotifier:notifier];
-            
-            // Only remove this notifier if it was successfully removed from the post office
-            if (success) {
-                foundKey = notifierKey;
-            }
-            
-            *stop = YES;
+    NSUInteger notifierIndex = [self.notifiers indexOfObjectIdenticalTo:notifier];
+    
+    if (notifierIndex != NSNotFound) {
+        // We need a custom predicate that checks the notifier pointers
+        NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(_ZCRSubscription *subscription, NSDictionary *bindings) {
+            return subscription.notifier == notifier;
+        }];
+        
+        NSSet *subscriptions = [self.subscriptions filteredSetUsingPredicate:predicate];
+        
+        success = [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions];
+        
+        if (success) {
+            [self.subscriptions minusSet:subscriptions];
+            [self.notifiers removeObjectAtIndex:notifierIndex];
         }
-    }];
-    
-    if (foundKey) {
-        [subscriptionsForNotifiers removeObjectForKey:foundKey];
     }
     
     [self.lock unlock];
@@ -328,25 +314,12 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 - (void)unsubscribeFromAll {
     [self.lock lock];
     
-    [self _enumerateNotifiersAndSubscriptionsUsingBlock:^(id notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop) {
-        [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:subscriptions forNotifier:notifier];
-    }];
+    [[_ZCRPostOffice sharedPostOffice] removeSubscriptions:self.subscriptions];
     
-    [self.subscriptionsForNotifiers removeAllObjects];
+    [self.subscriptions removeAllObjects];
+    [self.notifiers removeAllObjects];
     
     [self.lock unlock];
-}
-
-- (void)_enumerateNotifiersAndSubscriptionsUsingBlock:(void (^)(id notifierKey, id notifier, NSMutableSet *subscriptions, BOOL *stop))block {
-    if (!block) { return; }
-    
-    [self.subscriptionsForNotifiers enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-        // Because of our tricksy way of storing the notifiers, we need to unpack the key to get the actual notifier
-        id (^notifierBlock)() = key;
-        id notifier = notifierBlock();
-        
-        block(key, notifier, obj, stop);
-    }];
 }
 
 @end
@@ -381,33 +354,40 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     
     [self.lock lock];
     
+    NSSet *subscriptions = [self.subscriptions copy];
+    
+    [self.lock unlock];
+    
     [description appendString:@" subscriptions:("];
     
-    for (_ZCRSubscription *subscription in self.subscriptions) {
+    for (_ZCRSubscription *subscription in subscriptions) {
         [description appendFormat:@"\n\t%@", subscription];
     }
     
-    if (self.subscriptions.count > 0) {
+    if (subscriptions.count > 0) {
         [description appendString:@"\n)"];
     } else {
         [description appendString:@")"];
     }
     
-    [self.lock unlock];
-    
     return [description copy];
 }
 
-- (BOOL)addSubscription:(_ZCRSubscription *)subscription forNotifier:(id)notifier {
-    if (!subscription || !notifier) { return NO; }
+- (BOOL)addSubscription:(_ZCRSubscription *)subscription {
+    if (!subscription) { return NO; }
     
-    NSMutableSet *subscriptions = self.subscriptions;
+    id notifier = subscription.notifier;
+    
+    if (!notifier) { return NO; }
     
     [self.lock lock];
+    
+    NSMutableSet *subscriptions = self.subscriptions;
     
     // This is highly unlikely since equality is pretty strict, but better safe than sorry!
     if ([subscriptions containsObject:subscription]) {
         [self.lock unlock];
+        
         return NO;
     }
     
@@ -450,8 +430,8 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     return YES;
 }
 
-- (BOOL)removeSubscriptions:(NSSet *)subscriptions forNotifier:(id)notifier {
-    if (subscriptions.count == 0 || !notifier) { return NO; }
+- (BOOL)removeSubscriptions:(NSSet *)subscriptions {
+    if (subscriptions.count == 0) { return NO; }
     
     [self.lock lock];
     
@@ -460,6 +440,10 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     [self.lock unlock];
     
     for (_ZCRSubscription *subscription in subscriptions) {
+        id notifier = subscription.notifier;
+        
+        if (!notifier) { return NO; }
+        
         // For now these conditionals only apply to NSArrays, but in the future these more efficient observation methods for colletions might
         // be added, so we try and future proof here.
         if ([notifier respondsToSelector:@selector(addObserver:toObjectsAtIndexes:forKeyPath:options:context:)] &&
@@ -505,7 +489,7 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
     
     // If we can't notify the subscriber for whatever reason, we should remove this subscription
     if (![self _notifySubscriber:subscriber ofChange:change subscription:subscription]) {
-        [self removeSubscriptions:[NSSet setWithObject:subscription] forNotifier:object];
+        [self removeSubscriptions:[NSSet setWithObject:subscription]];
     }
 }
 
@@ -721,5 +705,3 @@ NSString *ZCRStringForKVOKind(NSKeyValueChange kind) {
 }
 
 @end
-
-
