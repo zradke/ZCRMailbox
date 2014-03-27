@@ -849,7 +849,7 @@ static void *ZCRSubscriberKVOContext = &ZCRSubscriberKVOContext;
     [queue setSuspended:NO];
     
     timeoutDate = [NSDate dateWithTimeIntervalSinceNow:5.0];
-    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !subscriber.lastMessage) {
+    while ([timeoutDate timeIntervalSinceNow] > 0.0 && !subscriber.lastChange) {
         [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     }
     
