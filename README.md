@@ -15,10 +15,10 @@ You will need to have a minimum deployment target of iOS 5.0+ or OSX 10.7+, and 
 Here's how to get ZCRMailbox up and running:
 
 * Drag-n-drop
-* Cocoapods
+* CocoaPods
 * Build a framework (iOS only)
 
-Struggling in a sea of options? Allow me to strongly suggest using Cocoapods!
+Struggling in a sea of options? Allow me to strongly suggest using CocoaPods!
 
 Regardless of which method you choose, you can start working with ZCRMailbox by importing it where you need:
 
@@ -30,11 +30,11 @@ Regardless of which method you choose, you can start working with ZCRMailbox by 
 
 This project is really just two files: **ZCRMailbox.h** and **ZCRMailbox.m**. You can find them by cloning the repo and dragging them from the `Classes` directory into your Xcode project. Just make sure the "Copy items into destination group's folder (if needed)" checkbox is checked as well as whatever targets you need to use them in. Oh, and it's very unlikely, but if the names clash you may need to rename the files.
 
-### Cocoapods
+### CocoaPods
 
-Need more info on Cocoapods? Check out their [website](http://cocoapods.org/) for more information on what its used for and how to get it running.
+Need more info on CocoaPods? Check out their [website](http://cocoapods.org/) for more information on what its used for and how to get it running.
 
-When you're done with that, or if you're already familiar with Cocoapods, just add
+When you're done with that, or if you're already familiar with CocoaPods, just add
 
 ```
 pod "ZCRMailbox"
